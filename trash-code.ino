@@ -1,7 +1,12 @@
 #include <Stepper.h>
 #include <Servo.h>
 #include <NewPing.h>
+#include <WiFiNINA.h>
+#include <SPI.h>
 
+// Wifi Stuff
+WiFiServer server(80);
+int wifiStatus = WL_IDLE_STATUS;
 
 // Stepper Stuff
 const int S_IN4 = 26, S_IN3 = 28, S_IN2 = 32, S_IN1 = 12, stepsPer = 200;
@@ -22,7 +27,8 @@ unsigned long irTest = millis(), irCallback = millis();
 // Ultrasonic Stuff
 const int ECHO = 25, TRIG = 31;
 NewPing sonar(TRIG, ECHO, 50);
-unsigned long pingTime = millis(), dist;
+unsigned long pingTime = millis();
+int dist;
 const int rightBoxCompress = 551,
   rightBoxDispense = 1010,
   leftBoxCompress = 200,
@@ -37,6 +43,7 @@ bool toDispense = false;
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
+  while (!Serial);
 
   // Compressor Motor
   pinMode(C_IN3, OUTPUT);
@@ -65,7 +72,7 @@ double absd(double x) {
   return (x < 0 ? -x : x);
 }
 
-const double distPerStep = 3.1; // Roughly 3.1 Ultrasonic Sensor Dists per Step (reversed)
+const double distPerStep = 2; // Roughly 3.1 Ultrasonic Sensor Dists per Step (reversed)
 int travelCommand = 0; // 1 -> Dispense, 2 -> Compress, 0 -> Nothing
 
 void loop() {
@@ -96,12 +103,12 @@ void loop() {
 
   if (testIR && millis() >= irTest) {
     Serial.println("Checked out!");
-    if (metalRead == LOW) {
+    if (metalRead == LOW && false) { // temporary disable compressor movement
       // compress metal
       toTravel = true;
       travelCommand = 2;
       travel = (dist - leftBoxCompress) / distPerStep;
-    } else if (plasticRead == LOW) {
+    } else if (plasticRead == LOW && false) {
       // compress plastic
       toTravel = true;
       travelCommand = 2;
@@ -126,18 +133,24 @@ void loop() {
     if (toTravel && !toCompress) { // Can't move while compressing
       Serial.print("Steps to Travel: ");
       Serial.println((int) travel);
-      stepper.step((int) travel);
-      toTravel = false;
-      if (travelCommand == 1) {
-        toDispense = true;
-        dispenseTime = millis() + 1500;
-        gate.write(180); // Open the gate
-      } else if (travelCommand == 2) {
-        toCompress = true;
-        compressTime = millis() + 200000; // compress for 1 min
-        analogWrite(C_enB, 255);
-        digitalWrite(C_IN3, HIGH); // Default Direction
-        digitalWrite(C_IN4, LOW);
+
+      if (absd(travel) > 1000) {
+        toTravel = false;
+        travelCommand = 0; // protect against overflow
+      } else {
+        stepper.step((int) travel);
+        toTravel = false;
+        if (travelCommand == 1) {
+          toDispense = true;
+          dispenseTime = millis() + 1500;
+          gate.write(140); // Open the gate
+        } else if (travelCommand == 2) {
+          toCompress = true;
+          compressTime = millis() + 200000; // compress for 1 min
+          analogWrite(C_enB, 255);
+          digitalWrite(C_IN3, HIGH); // Default Direction
+          digitalWrite(C_IN4, LOW);
+        }
       }
     }
   }
@@ -150,10 +163,24 @@ void loop() {
       toTravel = true;
       travelCommand = 1;
       travel = (dist - leftBoxDispense) / distPerStep;
+      Serial.print(dist);
+      Serial.print(", ");
+      Serial.println(leftBoxDispense);
+      Serial.print("Travel (US): ");
+      Serial.println(dist - leftBoxDispense);
+      Serial.print("Travel (steps): ");
+      Serial.println(travel);
     } else if (c == 'P') {
       toTravel = true;
       travelCommand = 1;
       travel = (dist - rightBoxDispense) / distPerStep;
+      Serial.print(dist);
+      Serial.print(", ");
+      Serial.println(rightBoxDispense);
+      Serial.print("Travel (US): ");
+      Serial.println(dist - rightBoxDispense);
+      Serial.print("Travel (steps): ");
+      Serial.println(travel);
     }
     Serial.print("Steps to Travel: ");
     Serial.println((int) travel);
