@@ -6,26 +6,30 @@
 // Stepper Stuff
 const int S_IN4 = 26, S_IN3 = 28, S_IN2 = 32, S_IN1 = 12, stepsPer = 200;
 Stepper stepper(stepsPer, S_IN1, S_IN2, S_IN3, S_IN4);
-int travel;
+bool toTravel = false;
+double travel;
 
 // Compressor Stuff
 const int C_IN3 = 23, C_IN4 = 22, C_enB = 6, S1 = 27, S2 = 29;
+unsigned long compressTime = millis();
 
 // IR Stuff
-const int IR1 = 33, IR2 = 35;
+const int plasticIR = 33, metalIR = 35;
 
 // Ultrasonic Stuff
 const int ECHO = 25, TRIG = 31;
 NewPing sonar(TRIG, ECHO, 50);
 unsigned long pingTime = millis(), dist;
-const int rightBoxCompress = 1323,
-  rightBoxDispense = 555,
-  leftBoxCompress = 1727,
-  leftBoxDispense = 1343;
+const int rightBoxCompress = 551,
+  rightBoxDispense = 1010,
+  leftBoxCompress = 200,
+  leftBoxDispense = 555;
 
 // Servo stuff
 const int servoPin = 9;
 Servo gate;
+unsigned long dispenseTime = millis();
+bool toDispense = false;
 
 void setup() {
   // put your setup code here, to run once:
@@ -40,38 +44,68 @@ void setup() {
   pinMode(S2, INPUT);
 
   // IR Sensors
-  pinMode(IR1, INPUT);
-  pinMode(IR2, INPUT);
+  pinMode(metalIR, INPUT);
+  pinMode(plasticIR, INPUT);
 
   // Servo
   gate.attach(9);
   //gate.write(0); // 0 the servo
   //delay(1000); // Pause for movement
-  //gate.write(180); // Move to closed to begin with
+  gate.write(0); // Move to closed to begin with
+  delay(500);
 
   // Stepper
-  stepper.setSpeed(80);
+  stepper.setSpeed(60);
 }
 
+double absd(double x) {
+  return (x < 0 ? -x : x);
+}
+
+const double distPerStep = 3.1; // Roughly 3.1 Ultrasonic Sensor Dists per Step (reversed)
+
 void loop() {
-  // Asynchronous Ping-Response Checker
-  /*if (millis() >= pingTime) {
+  // Asynchronous Calls
+
+  // Dispense the Goods
+  if (toDispense && millis() >= dispenseTime) {
+    toDispense = false; // dispensing done
+    gate.write(0); // Sufficient enough time between next command that another wait is not needed
+  }
+
+  // Compress if IR is called high
+
+  // Manage distance and travelling
+  if (millis() >= pingTime) {
     pingTime = millis() + 100; // Check every 100 ms
-    dist = sonar.ping_median(10, 50);
+    dist = sonar.ping_median(12, 50);
     Serial.println("Dist: ");
     Serial.println(dist);
-  }*/
-
-  dist = sonar.ping_median(10, 50);
-  delay(100);
-  stepper.step(stepsPer);
-  delay(500);
-  dist = dist - sonar.ping_median(10, 50);
-  Serial.print("Dist for 200steps: ");
-  Serial.println(dist / 200);
-
-  stepper.step(-stepsPer);
-  delay(500);
+    
+    // travel
+    if (toTravel) {
+      stepper.step((int) travel);
+      toTravel = false;
+      toDispense = true;
+      dispenseTime = millis() + 1500;
+      gate.write(180); // Open the gate
+    }
+  }
 
 
+
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == 'M') {
+      toTravel = true;
+      travel = (dist - leftBoxDispense) / distPerStep;
+    } else if (c == 'P') {
+      toTravel = true;
+      travel = (dist - rightBoxDispense) / distPerStep;
+    }
+    Serial.print("Steps to Travel: ");
+    Serial.println((int) travel);
+  }
+
+  delay(10); // Standard 10ms delay
 }
