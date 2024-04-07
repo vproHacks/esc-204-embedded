@@ -11,10 +11,13 @@ double travel;
 
 // Compressor Stuff
 const int C_IN3 = 23, C_IN4 = 22, C_enB = 6, S1 = 27, S2 = 29;
+bool toCompress = false;
 unsigned long compressTime = millis();
 
 // IR Stuff
-const int plasticIR = 33, metalIR = 35;
+const int plasticIR = 35, metalIR = 33;
+bool testIR = false;
+unsigned long irTest = millis(), irCallback = millis();
 
 // Ultrasonic Stuff
 const int ECHO = 25, TRIG = 31;
@@ -63,6 +66,7 @@ double absd(double x) {
 }
 
 const double distPerStep = 3.1; // Roughly 3.1 Ultrasonic Sensor Dists per Step (reversed)
+int travelCommand = 0; // 1 -> Dispense, 2 -> Compress, 0 -> Nothing
 
 void loop() {
   // Asynchronous Calls
@@ -73,22 +77,68 @@ void loop() {
     gate.write(0); // Sufficient enough time between next command that another wait is not needed
   }
 
-  // Compress if IR is called high
+  // Compress if IR is called low
+  if (toCompress && millis() >= compressTime) {
+    toCompress = false;
+    digitalWrite(C_IN3, LOW);
+    digitalWrite(C_IN4, HIGH);
+  }
+
+  int metalRead = digitalRead(metalIR),
+    plasticRead = digitalRead(plasticIR);
+
+  if ((metalRead == LOW || plasticRead == LOW) && !testIR) {
+    // check in the next 300ms, if the IR is still pulled high, then it is ready to get compressed
+    Serial.println("Pulled LOW");
+    irTest = millis() + 300;
+    testIR = true;
+  } 
+
+  if (testIR && millis() >= irTest) {
+    Serial.println("Checked out!");
+    if (metalRead == LOW) {
+      // compress metal
+      toTravel = true;
+      travelCommand = 2;
+      travel = (dist - leftBoxCompress) / distPerStep;
+    } else if (plasticRead == LOW) {
+      // compress plastic
+      toTravel = true;
+      travelCommand = 2;
+      travel = (dist - leftBoxCompress) / distPerStep;
+    } else testIR = false;
+  }
 
   // Manage distance and travelling
   if (millis() >= pingTime) {
     pingTime = millis() + 100; // Check every 100 ms
     dist = sonar.ping_median(12, 50);
+
+    // Debug
     Serial.println("Dist: ");
     Serial.println(dist);
-    
+    //Serial.print("Metal IR: ");
+    //Serial.println((metalRead == HIGH ? "HIGH" : "LOW"));
+    //Serial.print("Plastic IR: ");
+    //Serial.println((plasticRead == HIGH ? "HIGH" : "LOW"));
+
     // travel
-    if (toTravel) {
+    if (toTravel && !toCompress) { // Can't move while compressing
+      Serial.print("Steps to Travel: ");
+      Serial.println((int) travel);
       stepper.step((int) travel);
       toTravel = false;
-      toDispense = true;
-      dispenseTime = millis() + 1500;
-      gate.write(180); // Open the gate
+      if (travelCommand == 1) {
+        toDispense = true;
+        dispenseTime = millis() + 1500;
+        gate.write(180); // Open the gate
+      } else if (travelCommand == 2) {
+        toCompress = true;
+        compressTime = millis() + 200000; // compress for 1 min
+        analogWrite(C_enB, 255);
+        digitalWrite(C_IN3, HIGH); // Default Direction
+        digitalWrite(C_IN4, LOW);
+      }
     }
   }
 
@@ -98,9 +148,11 @@ void loop() {
     char c = Serial.read();
     if (c == 'M') {
       toTravel = true;
+      travelCommand = 1;
       travel = (dist - leftBoxDispense) / distPerStep;
     } else if (c == 'P') {
       toTravel = true;
+      travelCommand = 1;
       travel = (dist - rightBoxDispense) / distPerStep;
     }
     Serial.print("Steps to Travel: ");
