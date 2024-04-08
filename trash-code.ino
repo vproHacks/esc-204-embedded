@@ -4,10 +4,6 @@
 #include <WiFiNINA.h>
 #include <SPI.h>
 
-// Wifi Stuff
-WiFiServer server(80);
-int wifiStatus = WL_IDLE_STATUS;
-
 // Stepper Stuff
 const int S_IN4 = 26, S_IN3 = 28, S_IN2 = 32, S_IN1 = 12, stepsPer = 200;
 Stepper stepper(stepsPer, S_IN1, S_IN2, S_IN3, S_IN4);
@@ -103,12 +99,12 @@ void loop() {
 
   if (testIR && millis() >= irTest) {
     Serial.println("Checked out!");
-    if (metalRead == LOW && false) { // temporary disable compressor movement
+    if (metalRead == LOW) { // temporary disable compressor movement
       // compress metal
       toTravel = true;
       travelCommand = 2;
       travel = (dist - leftBoxCompress) / distPerStep;
-    } else if (plasticRead == LOW && false) {
+    } else if (plasticRead == LOW) {
       // compress plastic
       toTravel = true;
       travelCommand = 2;
